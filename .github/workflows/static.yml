@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Worthless Coin Clicker — Save & Load</title>
+<style>
+  :root{
+    --bg:#1a0033; --muted:rgba(255,255,255,0.85);
+    --panel:rgba(255,255,255,0.06); --accent:#ff66cc;
+  }
+  html,body{height:100%; margin:0; font-family:Inter, system-ui, Arial; background:var(--bg); color:var(--muted);}
+  .wrap{max-width:980px; margin:24px auto; padding:20px; text-align:center;}
+  h1{margin:6px 0 18px; font-size:2.4rem}
+  #coin{width:220px; cursor:pointer; user-select:none; transition:transform .08s ease;}
+  #coin:active{transform:scale(.95)}
+  .stats{display:flex; justify-content:center; gap:24px; margin-top:16px; flex-wrap:wrap}
+  .stat{background:var(--panel); padding:14px 18px; border-radius:10px; min-width:160px}
+  .stat strong{display:block; font-size:1.5rem}
+  .shop{margin-top:24px; display:flex; justify-content:center; gap:18px; flex-wrap:wrap}
+  .card{background:var(--panel); padding:16px; border-radius:10px; width:260px; text-align:left;}
+  .card h3{margin:0 0 8px; font-size:1.05rem}
+  .card p{margin:0 0 12px; color:rgba(255,255,255,0.7)}
+  .card button{width:100%; padding:10px; border-radius:8px; border:none; background:var(--accent); color:white; cursor:pointer; font-weight:600}
+  .card button:disabled{background:gray; cursor:not-allowed}
+  .controls{margin-top:22px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap}
+  .controls button{padding:8px 12px; border-radius:8px; border:none; cursor:pointer}
+  .small{font-size:.9rem; color:rgba(255,255,255,0.6)}
+  footer{margin-top:28px; font-size:.82rem; color:rgba(255,255,255,0.5)}
+  input[type="file"]{display:none}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>💸 Worthless Coin Clicker</h1>
+    <img id="coin" src="worthless-coin-moonshot.png" alt="Worthless Coin">
+    <div class="stats" aria-live="polite">
+      <div class="stat"><span class="small">Coins</span><strong id="coins">0</strong></div>
+      <div class="stat"><span class="small">Coins / click</span><strong id="cpc">1</strong></div>
+      <div class="stat"><span class="small">Coins / sec</span><strong id="cps">0</strong></div>
+    </div>
+
+    <div class="shop" role="region" aria-label="Shop">
+      <div class="card">
+        <h3>Upgrade Click</h3>
+        <p>Increase coins per click by +1.</p>
+        <button id="upgradeClick">Buy — Cost: <span id="costClick">10</span></button>
+      </div>
+
+      <div class="card">
+        <h3>Auto Clicker</h3>
+        <p>Gives +1 coins every second.</p>
+        <button id="buyAuto">Buy — Cost: <span id="costAuto">50</span></button>
+      </div>
+
+      <div class="card">
+        <h3>Mint</h3>
+        <p>A factory that produces coins automatically (+5/sec).</p>
+        <button id="buyMint">Buy — Cost: <span id="costMint">500</span></button>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="saveBtn">Manual Save</button>
+      <button id="loadBtn">Load Save</button>
+      <label for="fileImport" style="cursor:pointer; padding:8px 12px; background:#444; color:white; border-radius:8px;">Import Save</label>
+      <input id="fileImport" type="file" accept="application/json">
+      <button id="exportBtn">Export Save</button>
+      <button id="resetBtn" style="background:#7b2b4a; color:white;">Reset</button>
+    </div>
+
+    <div style="margin-top:14px">
+      <span class="small">Autosave: <span id="autosaveState">ON</span> • Last saved: <span id="lastSaved">Never</span></span>
+    </div>
+
+    <footer>
+      Tip: Your progress is saved to your browser. Export the save file if you want to keep it or move it to another device.
+    </footer>
+  </div>
+
+<script>
+/* ======= Core game state & defaults ======= */
+const SAVE_KEY = 'worthlessCoinSave_v1';
+
+let state = {
+  coins: 0,
+  coinsPerClick: 1,
+  autoClickers: 0,     // each +1/sec
+  mints: 0,            // each +5/sec
+  costs: {
+    clickUpgrade: 10,
+    autoClicker: 50,
+    mint: 500
+  },
+  lastSaved: null
+};
+
+/* ======= Element refs ======= */
+const coinsEl = document.getElementById('coins');
+const cpcEl = document.getElementById('cpc');
+const cpsEl = document.getElementById('cps');
+const coinImg = document.getElementById('coin');
+
+const upgradeBtn = document.getElementById('upgradeClick');
+const buyAutoBtn = document.getElementById('buyAuto');
+const buyMintBtn = document.getElementById('buyMint');
+
+const costClickEl = document.getElementById('costClick');
+const costAutoEl = document.getElementById('costAuto');
+const costMintEl = document.getElementById('costMint');
+
+const saveBtn = document.getElementById('saveBtn');
+const loadBtn = document.getElementById('loadBtn');
+const exportBtn = document.getElementById('exportBtn');
+const resetBtn = document.getElementById('resetBtn');
+const fileInput = document.getElementById('fileImport');
+const autosaveStateEl = document.getElementById('autosaveState');
+const lastSavedEl = document.getElementById('lastSaved');
+
+/* ======= Utility functions ======= */
+function nStr(n){ return Number(n).toLocaleString(); }
+function nowISO(){ return (new Date()).toISOString(); }
+
+/* ======= Game logic ======= */
+function addCoins(amount){
+  state.coins += amount;
+  updateUI();
+}
+
+coinImg.addEventListener('click', () => {
+  addCoins(state.coinsPerClick);
+});
+
+upgradeBtn.addEventListener('click', () => {
+  const cost = state.costs.clickUpgrade;
+  if (state.coins >= cost) {
+    state.coins -= cost;
+    state.coinsPerClick += 1;
+    // scale cost
+    state.costs.clickUpgrade = Math.ceil(state.costs.clickUpgrade * 1.5);
+    updateUI();
+  }
+});
+
+buyAutoBtn.addEventListener('click', () => {
+  const cost = state.costs.autoClicker;
+  if (state.coins >= cost) {
+    state.coins -= cost;
+    state.autoClickers += 1;
+    state.costs.autoClicker = Math.ceil(state.costs.autoClicker * 1.5);
+    updateUI();
+  }
+});
+
+buyMintBtn.addEventListener('click', () => {
+  const cost = state.costs.mint;
+  if (state.coins >= cost) {
+    state.coins -= cost;
+    state.mints += 1;
+    state.costs.mint = Math.ceil(state.costs.mint * 1.6);
+    updateUI();
+  }
+});
+
+/* ======= Passive generation ======= */
+function computeCPS(){
+  // autoClickers give +1/sec each, mints give +5/sec each
+  return state.autoClickers * 1 + state.mints * 5;
+}
+
+setInterval(() => {
+  const cps = computeCPS();
+  if (cps > 0){
+    state.coins += cps;
+    updateUI();
+  }
+}, 1000);
+
+/* ======= UI updates ======= */
+function updateUI(){
+  coinsEl.textContent = nStr(Math.floor(state.coins));
+  cpcEl.textContent = nStr(state.coinsPerClick);
+  cpsEl.textContent = nStr(computeCPS());
+  costClickEl.textContent = nStr(state.costs.clickUpgrade);
+  costAutoEl.textContent = nStr(state.costs.autoClicker);
+  costMintEl.textContent = nStr(state.costs.mint);
+
+  // enable/disable shop buttons
+  upgradeBtn.disabled = state.coins < state.costs.clickUpgrade;
+  buyAutoBtn.disabled = state.coins < state.costs.autoClicker;
+  buyMintBtn.disabled = state.coins < state.costs.mint;
+}
+
+/* ======= Save / Load ======= */
+function saveGame(){
+  try {
+    const toSave = {
+      coins: state.coins,
+      coinsPerClick: state.coinsPerClick,
+      autoClickers: state.autoClickers,
+      mints: state.mints,
+      costs: state.costs,
+      lastSaved: nowISO()
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(toSave));
+    state.lastSaved = toSave.lastSaved;
+    lastSavedEl.textContent = (new Date(state.lastSaved)).toLocaleString();
+    flashSaveState('Saved');
+  } catch (e) {
+    console.error('Save failed', e);
+    flashSaveState('Save failed');
+  }
+}
+
+function loadGame(doAlert = true){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw){
+      if (doAlert) alert('No save found in this browser.');
+      return false;
+    }
+    const parsed = JSON.parse(raw);
+    // validate keys (simple)
+    state.coins = parsed.coins ?? 0;
+    state.coinsPerClick = parsed.coinsPerClick ?? 1;
+    state.autoClickers = parsed.autoClickers ?? 0;
+    state.mints = parsed.mints ?? 0;
+    state.costs = parsed.costs ?? state.costs;
+    state.lastSaved = parsed.lastSaved ?? null;
+    if (state.lastSaved) lastSavedEl.textContent = (new Date(state.lastSaved)).toLocaleString();
+    updateUI();
+    if (doAlert) flashSaveState('Loaded');
+    return true;
+  } catch (e) {
+    console.error('Load failed', e);
+    if (doAlert) alert('Failed to load save: ' + e);
+    return false;
+  }
+}
+
+/* Manual export (download save as JSON) */
+function exportSave(){
+  const data = JSON.stringify({
+    coins: state.coins,
+    coinsPerClick: state.coinsPerClick,
+    autoClickers: state.autoClickers,
+    mints: state.mints,
+    costs: state.costs,
+    lastSaved: nowISO()
+  }, null, 2);
+  const blob = new Blob([data], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'worthless_coin_save.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* Import save from user file */
+fileInput.addEventListener('change', (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const parsed = JSON.parse(e.target.result);
+      // quick validation
+      if (typeof parsed.coins === 'number'){
+        // store to localStorage and load
+        localStorage.setItem(SAVE_KEY, JSON.stringify(parsed));
+        loadGame();
+        alert('Save imported and loaded.');
+      } else {
+        alert('Invalid save file.');
+      }
+    } catch(err){
+      alert('Failed to parse file: ' + err);
+    }
+  };
+  reader.readAsText(f);
+  // clear selection so same file can be imported again
+  ev.target.value = '';
+});
+
+/* Reset */
+function resetGame(){
+  if (!confirm('Are you sure? This will erase your save and reset progress.')) return;
+  localStorage.removeItem(SAVE_KEY);
+  state = {
+    coins: 0,
+    coinsPerClick: 1,
+    autoClickers: 0,
+    mints: 0,
+    costs: { clickUpgrade:10, autoClicker:50, mint:500 },
+    lastSaved: null
+  };
+  lastSavedEl.textContent = 'Never';
+  updateUI();
+  flashSaveState('Reset');
+}
+
+/* ======= Quick UI helpers ======= */
+let flashTimer = null;
+function flashSaveState(text){
+  autosaveStateEl.textContent = text;
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(()=>{ autosaveStateEl.textContent = 'ON'; }, 1800);
+}
+
+/* ======= Autosave ======= */
+const AUTOSAVE_INTERVAL_MS = 5000;
+setInterval(() => {
+  saveGame();
+}, AUTOSAVE_INTERVAL_MS);
+
+/* Save on page unload too */
+window.addEventListener('beforeunload', () => {
+  saveGame();
+});
+
+/* ======= Buttons ======= */
+saveBtn.addEventListener('click', () => { saveGame(); alert('Saved to browser storage.'); });
+loadBtn.addEventListener('click', () => { loadGame(true); });
+exportBtn.addEventListener('click', exportSave);
+resetBtn.addEventListener('click', resetGame);
+
+/* ======= Init ======= */
+(function init(){
+  // try to load existing save silently
+  const loaded = loadGame(false);
+  if (!loaded) updateUI();
+  // update lastSaved display
+  if (state.lastSaved) lastSavedEl.textContent = (new Date(state.lastSaved)).toLocaleString();
+  else lastSavedEl.textContent = 'Never';
+  autosaveStateEl.textContent = 'ON';
+})();
+</script>
+</body>
+</html>
